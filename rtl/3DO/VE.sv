@@ -7,10 +7,8 @@ module VE
 	input              VCE_R,
 	input              VCE_F,
 	
-	output reg         HS_R,
-	output reg         HS_F,
-	output reg         VS_R,
-	output reg         VS_F,
+	output             HSYNC_N,
+	output             VSYNC_N,
 	
 	output             HS_N,
 	output             VS_N,
@@ -18,7 +16,9 @@ module VE
 	output             VBLK_N,
 	output             DCLK,
 	
-	input              DBG_BORD_DIS
+	input      [ 7: 0] DBG_EXT,
+	input              DBG_BORD_DIS,
+	output     [ 9: 0] DBG_HS_START,DBG_HS_END
 );
 
 	bit  DCLK_DIV;
@@ -38,38 +38,35 @@ module VE
 	
 	bit  [ 9: 0] HCNT;
 	bit  [ 8: 0] VCNT;
-	bit          HSYNC;
+	bit          HSYNC,HSYNC2;
 	bit          VSYNC;
 	bit          HBLK;
 	bit          VBLK;
 	always @(posedge CLK or negedge RST_N) begin
+		bit  [ 7: 0] DBG_EXT_OLD;
+		
 		if (!RST_N) begin
 			HCNT <= '0;
 			VCNT <= '0;
 			HSYNC <= 1;
 			VSYNC <= 1;
-			HS_F <= 0;
-			HS_R <= 0;
-			VS_F <= 0;
-			VS_R <= 0;
+			HSYNC2 <= 1;
+			DBG_HS_START <= 10'd752;
+			DBG_HS_END <= 10'd30;
 		end
 		else if (EN && VCE_R) begin
-			{HS_F,HS_R,VS_F,VS_R} = '0;
 			if (DCLK_DIV) begin
 				HCNT <= HCNT + 10'd1;
 				if (HCNT == 10'd780 - 1) begin
 					HCNT <= '0;
-					HS_F <= 1;
 					HSYNC <= 1;
 					
 					VCNT <= VCNT + 9'd1;
 					if (VCNT == 9'd263 - 1) begin
 						VCNT <= '0;
-						VS_F <= 1;
 						VSYNC <= 1;
 					end
 					if (VCNT == 9'd3 - 1) begin
-						VS_R <= 1;
 						VSYNC <= 0;
 					end
 					
@@ -81,8 +78,15 @@ module VE
 					end
 				end
 				if (HCNT == 10'd58 - 1) begin
-					HS_R <= 1;
 					HSYNC <= 0;
+				end
+				
+				
+				if (HCNT == (DBG_HS_START - 10'd1)) begin
+					HSYNC2 <= 1;
+				end
+				if (HCNT == (DBG_HS_END - 10'd1)) begin
+					HSYNC2 <= 0;
 				end
 				
 				if (HCNT == HBLANK_START - 1) begin
@@ -92,10 +96,18 @@ module VE
 					HBLK <= 0;
 				end
 			end
+			
+			DBG_EXT_OLD <= DBG_EXT;
+			if (DBG_EXT[6] && !DBG_EXT_OLD[6]) if (DBG_HS_START > 10'd732) begin DBG_HS_START <= DBG_HS_START - 10'd1; DBG_HS_END <= DBG_HS_END - 10'd1; end
+			if (DBG_EXT[7] && !DBG_EXT_OLD[7]) if (DBG_HS_START < 10'd772) begin DBG_HS_START <= DBG_HS_START + 10'd1; DBG_HS_END <= DBG_HS_END + 10'd1; end
 		end
 	end 
+	
+	
+	assign HSYNC_N = ~HSYNC;
+	assign VSYNC_N = ~VSYNC;
 
-	assign HS_N = ~HSYNC;
+	assign HS_N = ~HSYNC2;
 	assign VS_N = ~VSYNC;
 	assign HBLK_N = ~HBLK;
 	assign VBLK_N = ~VBLK;
