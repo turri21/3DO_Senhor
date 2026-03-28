@@ -232,9 +232,9 @@ module sdram
 
 		if (mode == MODE_NORMAL) begin
 			casex ({ctrl_we,ctrl_cmd})
-				{1'bX,CTRL_RAS}: SDRAM_A <= {2'b00,a[21:11]};
-				{1'b0,CTRL_CAS}: SDRAM_A <= {2'b00,ra10,a[10:1]};
-				{1'b1,CTRL_CAS}: SDRAM_A <= {dqm  ,wa10 ,a[10:1]};
+				{1'bX,CTRL_RAS}: SDRAM_A <= {1'b0,a[21:10]};
+				{1'b0,CTRL_CAS}: SDRAM_A <= {2'b00,ra10,1'b0,a[9:1]};
+				{1'b1,CTRL_CAS}: SDRAM_A <= {dqm  ,wa10,1'b0,a[9:1]};
 			endcase;
 		end
 		else if (mode == MODE_LDM && ctrl_cmd == CTRL_RAS) SDRAM_A <= MODE;
