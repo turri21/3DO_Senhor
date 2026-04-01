@@ -10,9 +10,11 @@ module P3DO
 `endif
 (
 	input              CLK,
+	input              VCLK,
 	input              RST_N,
 	input              EN,
 	input              PAUSE,
+	input              DSP_PAUSE,
 	
 	input              CE_R,
 	input              CE_F,
@@ -72,9 +74,8 @@ module P3DO
 	
 	input      [31: 0] S,
 
-	input              VCE_R,
-	input              VCE_F,
-	output     [23: 0] AD,
+	input              VCE,
+	output     [23: 0] RGB,
 	output             HS_N,
 	output             VS_N,
 	output             HBLK_N,
@@ -141,6 +142,8 @@ module P3DO
 	
 	bit          HSYNC_N;
 	bit          VSYNC_N;
+	bit  [23: 0] AD;
+	bit          DE;
 	
 	ARM6_CORE cpu
 	(
@@ -263,8 +266,7 @@ module P3DO
 		.RQSF(RQSF),
 		.RCODE(RCODE),
 	
-		.VCE_R(VCE_R),
-		.VCE_F(VCE_F),
+		.VCE(VCE),
 		.PCSC(PCSC),
 		.LPSC_N(LPSC_N),
 		.RPSC_N(RPSC_N),
@@ -321,7 +323,8 @@ module P3DO
 		
 		.CE_R(CE_R),
 		.CE_F(CE_F),
-		.CE(~PAUSE),
+		.IO_EN(~PAUSE),
+		.DSP_EN(~DSP_PAUSE),
 		
 		.RESET_N(RESET_N),
 		.PON(PON),
@@ -354,8 +357,7 @@ module P3DO
 		.ADBIO_I('0),
 		.ADBIO_O(CLIO_ADBIO_O),
 		
-		.VCE_R(VCE_R),
-		.VCE_F(VCE_F),
+		.VCE(VCE),
 		.HSYNC_N(HSYNC_N),
 		.VSYNC_N(VSYNC_N),
 		
@@ -365,6 +367,7 @@ module P3DO
 		.PCSC(PCSC),
 		
 		.AD(AD),
+		.DE(DE),
 		
 		.ACLK_CE(ACLK_CE),
 		.AUDIOL(CLIO_AUDIOL),
@@ -414,15 +417,17 @@ module P3DO
 	VE ve
 	(
 		.CLK(CLK),
+		.VCLK(VCLK),
 		.RST_N(RST_N & RESET_N),
 		.EN(EN),
 		
-		.VCE_R(VCE_R),
-		.VCE_F(VCE_F),
-		
+		.VCE(VCE),
+		.AD(AD),
+		.DE(DE),
 		.HSYNC_N(HSYNC_N),
 		.VSYNC_N(VSYNC_N),
 		
+		.RGB(RGB),
 		.HS_N(HS_N),
 		.VS_N(VS_N),
 		.HBLK_N(HBLK_N),

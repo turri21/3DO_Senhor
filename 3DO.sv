@@ -167,10 +167,7 @@ module emu
 	input   [6:0] USER_IN,
 	output  [6:0] USER_OUT,
 
-	input         OSD_STATUS,
-	
-	output reg       dbg_error,
-	output reg [11:0] DBG_WAIT_CNT
+	input         OSD_STATUS
 );
 
 	assign ADC_BUS  = 'Z;
@@ -205,12 +202,17 @@ module emu
 		.locked(locked)
 	);
 	
-	wire [1:0] ar       = '0;//status[33:32];
-	wire       vcrop_en = 0;//status[39];
-	wire [3:0] vcopt    = '0;//status[38:35];
+	reg [ 1:0] ar;
+	reg        vcrop_en;
+	reg [ 3:0] vcopt;
+	reg [ 1:0] vf_scale;
 	reg        en216p;
-	reg  [4:0] voff;
+	reg [ 4:0] voff;
 	always @(posedge CLK_VIDEO) begin
+		ar <= '0;//status[33:32];
+		vcrop_en <= 0;//status[39];
+		vcopt <= '0;//status[38:35];
+		vf_scale <= '0;//status[41:40];
 		en216p <= ((HDMI_WIDTH == 1920) && (HDMI_HEIGHT == 1080) && !forced_scandoubler && !scale);
 		voff <= (vcopt < 6) ? {vcopt,1'b0} : ({vcopt,1'b0} - 5'd24);
 	end
@@ -224,7 +226,7 @@ module emu
 		.ARY(12'd49),
 		.CROP_SIZE((en216p & vcrop_en) ? 10'd216 : 10'd0),
 		.CROP_OFF(voff),
-		.SCALE(status[41:40])
+		.SCALE(vf_scale)
 	);
 
 	///////////////////////////////////////////////////
@@ -417,6 +419,7 @@ module emu
 	//FPGA has enough BRAM to replace 0x60000 bytes (out of 0x100000 bytes) of VRAM. 
 	//Of these, 0x5C000 bytes start at BRAM_OFFS*0x10000, while the remaining 0x4000 bytes always start at offset 0xFC000 (VDL). 
 	reg  [ 3: 0] BRAM_OFFS;
+	reg          NEED_DSP_PAUSE;
 	always @(posedge clk_sys) begin
 		reg [31: 0] id;
 	
@@ -429,13 +432,18 @@ module emu
 			end 
 			else if (ioctl_addr == 25'h480) begin
 				BRAM_OFFS <= 4'h0;
-				if (id == 32'h274E924C) BRAM_OFFS <= 4'h4;//Alone in the Dark (US)
+				NEED_DSP_PAUSE <= 0;
+				if (id == 32'h274E924C) BRAM_OFFS <= 4'h2;//Alone in the Dark (US)
 				if (id == 32'h0340842C) BRAM_OFFS <= 4'hA;//Cannon Fodder (US)
 				if (id == 32'h2D731C98) BRAM_OFFS <= 4'hA;//FIFA International Soccer (US, Korea)
 				if (id == 32'h2584F855) BRAM_OFFS <= 4'h8;//Psychic Detective (US) (Disc 1)
 				if (id == 32'h031BED09) BRAM_OFFS <= 4'h6;//Quarantine (US)
 				if (id == 32'h06DE0DC2) BRAM_OFFS <= 4'hA;//Road & Track Presents - The Need for Speed (US, EU)
 				if (id == 32'h2D95DCB6) BRAM_OFFS <= 4'h6;//Seal of the Pharaoh (US)
+				
+				if (id == 32'h25609184) NEED_DSP_PAUSE <= 1;//Blade Force (US)
+				if (id == 32'h043DCD69) NEED_DSP_PAUSE <= 1;//Decathlon (US) (Unl)
+				if (id == 32'h0A9B739E) NEED_DSP_PAUSE <= 1;//Killing Time (US) (RE1)
 			end
 		end
 	end
@@ -521,21 +529,15 @@ module emu
 	wire SYS_CE_R = CE_R;
 	wire SYS_CE_F = CE_F;
 	
-	wire VCE_2X;	//Video clock
+	wire VCE;	//Video clock
 	CEGen VCE_CEGen
 	(
 		.CLK(clk_sys),
 		.RST_N(1),
 		.IN_CLK(in_clk),
-		.OUT_CLK(24545400*2),
-		.CE(VCE_2X)
+		.OUT_CLK(24545400),
+		.CE(VCE)
 	);
-	
-	bit VCLK_DIV;
-	always @(posedge clk_sys) 
-		if (VCE_2X) VCLK_DIV <= ~VCLK_DIV;
-	wire VCE_R =  VCLK_DIV & VCE_2X;
-	wire VCE_F = ~VCLK_DIV & VCE_2X;
 	
 	wire ACLK_CE;	//Audio clock
 	CEGen AUD_CEGen
@@ -557,8 +559,10 @@ module emu
 	(
 		.RST_N(~reset),
 		.CLK(clk_sys),
+		.VCLK(clk_vid),
 		.EN(1),
 		.PAUSE(pause),
+		.DSP_PAUSE(pause & NEED_DSP_PAUSE),
 		
 		.CE_F(SYS_CE_F),
 		.CE_R(SYS_CE_R),
@@ -616,9 +620,8 @@ module emu
 		
 		.S(VRAM_SQ),
 		
-		.VCE_R(VCE_R),
-		.VCE_F(VCE_F),
-		.AD({R,G,B}),
+		.VCE(VCE),
+		.RGB({R,G,B}),
 		.HS_N(HS_N),
 		.VS_N(VS_N),
 		.HBLK_N(HBL_N),
@@ -892,9 +895,6 @@ module emu
 			if (!cond && pause) begin
 				pause <= 0;
 			end
-			
-			if (pause) DBG_WAIT_CNT <= DBG_WAIT_CNT + 1'd1;
-			else DBG_WAIT_CNT <= '0;
 		end
 	end
 	
@@ -921,7 +921,7 @@ module emu
 	always @(posedge clk_sys) begin
 		if (bk_ena && !OSD_STATUS && bk_save_write)
 			bk_pending <= 1'b1;
-		else if (bk_state || !bk_ena)
+		else if (bk_state || !bk_ena || cdd_info_download)
 			bk_pending <= 1'b0;
 	end
 
@@ -929,10 +929,10 @@ module emu
 	reg old_downloading = 0;
 	always @(posedge clk_sys) begin
 		old_downloading <= save_download;
-		if(~old_downloading & save_download) bk_ena <= 0;
+		if (~old_downloading & save_download) bk_ena <= 0;
 
 		//Save file always mounted in the end of downloading state.
-		if(save_download && img_mounted && !img_readonly) bk_ena <= 1;
+		if (save_download && img_mounted && !img_readonly) bk_ena <= 1;
 	end
 
 	wire bk_load    = status[12];
@@ -948,15 +948,15 @@ module emu
 
 		if(sd_ack && !old_ack) {sd_rd, sd_wr} <= 0;
 
-		if(!bk_state) begin
-			if((bk_load && !old_load) | (bk_save && !old_save)) begin
+		if (!bk_state) begin
+			if ((bk_load && !old_load) | (bk_save && !old_save)) begin
 				bk_state <= 1;
 				bk_loading <= bk_load;
 				sd_lba <= 0;
 				sd_rd <=  bk_load;
 				sd_wr <= ~bk_load;
 			end
-			if(old_downloading && !bios_download && !kanji_download && bk_ena) begin
+			if (old_downloading && !bios_download && !kanji_download && bk_ena) begin
 				bk_state <= 1;
 				bk_loading <= 1;
 				sd_lba <= 0;
@@ -998,21 +998,27 @@ module emu
 		end
 	end
 	
-	assign VGA_F1 = FIELD;
 	
-	wire [2:0] scale = status[3:1];
-	wire [2:0] sl = scale ? scale - 1'd1 : 3'd0;
+	wire [ 2: 0] scale = status[3:1];
+	reg          forced_scandoubler_sync;
+	reg  [ 2: 0] scale_sync;
+	always @(posedge clk_vid) begin
+		forced_scandoubler_sync <= forced_scandoubler;
+		scale_sync <= scale;
+	end
+	wire [ 2: 0] sl = scale_sync ? scale_sync - 1'd1 : 3'd0;
 	
-	assign CLK_VIDEO = clk_sys;
+	assign CLK_VIDEO = clk_vid;
 	assign VGA_SL = {~INTERLACE,~INTERLACE} & sl[1:0];
+	assign VGA_F1 = FIELD;
 	
 	video_mixer #(.LINE_LENGTH(640+8), .HALF_DEPTH(0), .GAMMA(1)) video_mixer
 	(
 		.*,
 	
 		.ce_pix(DCLK),	
-		.scandoubler(~INTERLACE && (scale || forced_scandoubler)),
-		.hq2x(scale==1),	
+		.scandoubler(~INTERLACE && (scale_sync || forced_scandoubler_sync)),
+		.hq2x(scale_sync==1),	
 		.freeze_sync(),
 	
 		.VGA_DE(vga_de),
