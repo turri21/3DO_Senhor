@@ -201,33 +201,6 @@ module emu
 		.outclk_2(clk_vid),
 		.locked(locked)
 	);
-	
-	reg [ 1:0] ar;
-	reg        vcrop_en;
-	reg [ 3:0] vcopt;
-	reg [ 1:0] vf_scale;
-	reg        en216p;
-	reg [ 4:0] voff;
-	always @(posedge CLK_VIDEO) begin
-		ar <= '0;//status[33:32];
-		vcrop_en <= 0;//status[39];
-		vcopt <= '0;//status[38:35];
-		vf_scale <= '0;//status[41:40];
-		en216p <= ((HDMI_WIDTH == 1920) && (HDMI_HEIGHT == 1080) && !forced_scandoubler && !scale);
-		voff <= (vcopt < 6) ? {vcopt,1'b0} : ({vcopt,1'b0} - 5'd24);
-	end
-
-	wire vga_de;
-	video_freak video_freak
-	(
-		.*,
-		.VGA_DE_IN(vga_de),
-		.ARX(12'd64),
-		.ARY(12'd49),
-		.CROP_SIZE((en216p & vcrop_en) ? 10'd216 : 10'd0),
-		.CROP_OFF(voff),
-		.SCALE(vf_scale)
-	);
 
 	///////////////////////////////////////////////////
 	
@@ -1012,7 +985,8 @@ module emu
 	assign VGA_SL = {~INTERLACE,~INTERLACE} & sl[1:0];
 	assign VGA_F1 = FIELD;
 	
-	video_mixer #(.LINE_LENGTH(640+8), .HALF_DEPTH(0), .GAMMA(1)) video_mixer
+	wire vga_de;
+	video_mixer #(.LINE_LENGTH(640+8), .HALF_DEPTH(0), .GAMMA(0)) video_mixer
 	(
 		.*,
 	
@@ -1032,6 +1006,32 @@ module emu
 		.VSync(~VS_N),
 		.HBlank(~HBL_N),
 		.VBlank(~VBL_N)
+	);
+	
+	reg [ 1:0] ar;
+	reg        vcrop_en;
+	reg [ 3:0] vcopt;
+	reg [ 1:0] vf_scale;
+	reg        en216p;
+	reg [ 4:0] voff;
+	always @(posedge CLK_VIDEO) begin
+		ar <= '0;//status[33:32];
+		vcrop_en <= 0;//status[39];
+		vcopt <= '0;//status[38:35];
+		vf_scale <= '0;//status[41:40];
+		en216p <= ((HDMI_WIDTH == 1920) && (HDMI_HEIGHT == 1080) && !forced_scandoubler_sync && !scale_sync);
+		voff <= (vcopt < 6) ? {vcopt,1'b0} : ({vcopt,1'b0} - 5'd24);
+	end
+
+	video_freak video_freak
+	(
+		.*,
+		.VGA_DE_IN(vga_de),
+		.ARX(12'd64),
+		.ARY(12'd49),
+		.CROP_SIZE((en216p & vcrop_en) ? 10'd216 : 10'd0),
+		.CROP_OFF(voff),
+		.SCALE(vf_scale)
 	);
 
 
