@@ -185,7 +185,7 @@ module MADAM_ARB
 				EXTP_INIT1: BUS_ST <= EXTP_READ0;				
 				EXTP_READ0: BUS_ST <= EXTP_READ1;				
 				EXTP_READ1: begin
-					if (EXTP_NEXT[0]) begin
+					if (EXTP_NEXT[1]) begin
 						BUS_ST <= EXTP_READ0;
 					end else begin
 						BUS_ST <= EXTP_LOOP0;
@@ -196,7 +196,7 @@ module MADAM_ARB
 				EXTP_INIT3: BUS_ST <= EXTP_WRITE0;	
 				EXTP_WRITE0: BUS_ST <= EXTP_WRITE1;				
 				EXTP_WRITE1: begin
-					if (EXTP_NEXT[0]) begin
+					if (EXTP_NEXT[1]) begin
 						BUS_ST <= EXTP_WRITE0;
 					end 
 					else begin
@@ -206,8 +206,15 @@ module MADAM_ARB
 				
 				EXTP_LOOP0: BUS_ST <= EXTP_LOOP1;	
 				EXTP_LOOP1: BUS_ST <= EXTP_LOOP2;
-				EXTP_LOOP2: BUS_ST <= EXTP_LOOP3;	
-				EXTP_LOOP3: BUS_ST <= EXTP_INFO0;	
+				EXTP_LOOP2: begin
+					if (EXTP_NEXT[2]) begin
+						BUS_ST <= EXTP_REINIT1;
+					end 
+					else begin
+						BUS_ST <= EXTP_LOOP3;
+					end
+				end	
+				EXTP_LOOP3: BUS_ST <= EXTP_INFO0;
 				EXTP_INFO0: BUS_ST <= EXTP_INFO1;	
 				EXTP_INFO1: begin
 					begin
@@ -215,6 +222,9 @@ module MADAM_ARB
 						if (!SE_RUN) CPU_GRANT_INT <= 1;
 						BUS_ST <= BUS_IDLE;
 					end
+				end
+				EXTP_REINIT1: begin
+					BUS_ST <= !EXTP_NEXT[0] ? EXTP_INIT0 : EXTP_INIT2;
 				end
 				
 				//PLAYER

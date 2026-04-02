@@ -49,6 +49,7 @@ module MADAM_PLAYER
 	always @(posedge CLK or negedge RST_N) begin
 		bit          ENABLE;
 		bit          START_PEND,END_PEND,SHIFT_PEND;
+		bit          DMA_REG_OVF_FF;
 		
 		if (!RST_N) begin
 			PBCLK <= 0;
@@ -120,7 +121,8 @@ module MADAM_PLAYER
 				end
 			
 				INT <= 0;
-				if (DATA_WR && DMA_REG_OVF) begin
+				DMA_REG_OVF_FF <= DMA_REG_OVF;
+				if (DATA_WR && DMA_REG_OVF_FF) begin
 					INT <= 1;
 					END_PEND <= 1;
 				end

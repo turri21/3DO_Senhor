@@ -85,7 +85,7 @@ module MADAM_EXTPIF
 			BURST_CNT <= '0;
 		end
 		else if (EN && CE_R) begin
-			if (BUS_INIT) begin
+			if (BUS_PREINIT && !BLOCK_END) begin
 				BURST_CNT <= 2'd0;
 			end
 			if (BUS_READ || BUS_WRITE) begin
@@ -95,22 +95,31 @@ module MADAM_EXTPIF
 	end 
 	wire         BURST_LAST = (BURST_CNT == (DMA_CHAN == 5'h14 ? 2'd3 : 2'd2));
 	
-	bit          BLOCK_END,BLOCK_LAST;
+	bit          BLOCK_END,BLOCK_LAST,BLOCK_CONTINUE;
 	always @(posedge CLK or negedge RST_N) begin		
+		bit          DMA_REG_OVF_FF;
+		bit          BLOCK_AND_LEN_END;
+		
 		if (!RST_N) begin
 			CPU_REQ <= 0;
 			CCODE <= '0;
-			BLOCK_END <= 0;
-			BLOCK_LAST <= 0;
+			{BLOCK_END,BLOCK_LAST,BLOCK_CONTINUE} <= '0;
+			BLOCK_AND_LEN_END <= 0;
 		end
 		else if (EN && CE_R) begin
+			DMA_REG_OVF_FF <= DMA_REG_OVF;
 			if (BUS_WRITE || BUS_READ) begin
-				BLOCK_END <= DMA_REG_OVF;
+				BLOCK_END <= DMA_REG_OVF_FF;
 				BLOCK_LAST <= DMA_REG_ZERO;
+				BLOCK_CONTINUE <= DMA_REG_OVF_FF && !BURST_LAST && (DMA_CHAN != 5'h14);
 			end
 			if (BUS_STATE_FF == EXTP_INFO0) begin
 				BLOCK_END <= 0;
 				BLOCK_LAST <= 0;
+				BLOCK_AND_LEN_END <= 0;
+			end
+			if (BUS_STATE_FF == EXTP_LOOP2 && BLOCK_END) begin
+				BLOCK_AND_LEN_END <= 1;
 			end
 			
 			if (CPU_GRANT) begin
@@ -125,14 +134,14 @@ module MADAM_EXTPIF
 			end
 			else if (GRANT) begin
 				CCODE <= '0;
-				if (BUS_PREINIT || (BUS_PRERW && !BLOCK_LAST && !BURST_LAST)) begin
+				if (BUS_PREINIT || (BUS_PRERW && !DMA_REG_OVF && !BLOCK_LAST && !BURST_LAST)) begin
 					CCODE <= 3'h2;
 				end
 				if (BUS_STATE_FF == EXTP_LOOP3) begin
 					CCODE <= 3'h7;
 				end
 				if (BUS_STATE_FF == EXTP_INFO0) begin
-					CCODE <= BLOCK_END ?  3'h3 : 3'h2;//TODO
+					CCODE <= BLOCK_AND_LEN_END ?  3'h3 : 3'h2;//TODO
 				end
 			end
 //			else if (PLAYER_INT) begin
@@ -183,7 +192,7 @@ module MADAM_EXTPIF
 				AG_CTL.DMA_REG_WRITE_EN = 1;
 				AG_CTL.DMA_ADDR_SEL = 1;
 				AG_CTL.DMA_ADDER_CTL = 4'b0001;
-				NEXT = {2'b00,~(BURST_LAST|DMA_REG_OVF)};
+				NEXT = {1'b0,~(BURST_LAST|DMA_REG_OVF),DMA_DIR};
 			end
 			
 			EXTP_INIT2: begin
@@ -223,7 +232,7 @@ module MADAM_EXTPIF
 				AG_CTL.DMA_REG_WRITE_EN = 1;
 				AG_CTL.DMA_ADDR_SEL = 1;
 				AG_CTL.DMA_ADDER_CTL = 4'b0001;
-				NEXT = {2'b00,~(BURST_LAST|DMA_REG_OVF)};
+				NEXT = {1'b0,~(BURST_LAST|DMA_REG_OVF),DMA_DIR};
 			end
 			
 			EXTP_LOOP0: begin
@@ -242,7 +251,6 @@ module MADAM_EXTPIF
 				AG_CTL.DMA_REG_WRITE_EN = BLOCK_END;
 				AG_CTL.DMA_ADDR_SEL = 1;
 				AG_CTL.DMA_ADDER_CTL = 4'b0000;
-//				NEXT = {2'b00,~(BURST_LAST|DMA_REG_OVF)};
 			end
 			
 			EXTP_LOOP2: begin
@@ -254,16 +262,14 @@ module MADAM_EXTPIF
 				AG_CTL.DMA_REG_WRITE_EN = BLOCK_END;
 				AG_CTL.DMA_ADDR_SEL = 1;
 				AG_CTL.DMA_ADDER_CTL = 4'b0000;
+				NEXT = {BLOCK_CONTINUE,1'b0,DMA_DIR};
 			end
 			
-			EXTP_LOOP3: begin
+			EXTP_LOOP3,
+			EXTP_REINIT1: begin
 				AG_CTL.DMA_ZERO_SEL = 1;
-				AG_CTL.DMA_REG_WRITE_SEL = 0;
-				AG_CTL.DMA_REG_WRITE_CTL = {DMA_CHAN[0],2'h2};
-				AG_CTL.DMA_REG_WRITE_EN = 0;
 				AG_CTL.DMA_ADDR_SEL = 1;
 				AG_CTL.DMA_ADDER_CTL = 4'b0000;
-//				NEXT = {2'b00,~(BURST_LAST|DMA_REG_OVF)};
 			end
 			
 			EXTP_INFO0: begin
@@ -273,7 +279,6 @@ module MADAM_EXTPIF
 				AG_CTL.DMA_REG_WRITE_EN = 0;
 				AG_CTL.DMA_ADDR_SEL = 1;
 				AG_CTL.DMA_ADDER_CTL = 4'b0000;
-//				NEXT = {2'b00,~(BURST_LAST|DMA_REG_OVF)};
 			end
 		
 			default:;

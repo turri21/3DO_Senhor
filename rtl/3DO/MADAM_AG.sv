@@ -53,7 +53,7 @@ module MADAM_AG
 	input BusState_t   BUS_STATE,
 	input AddrGenCtl_t DMA_CTL,
 	output reg         PBI,
-	output reg         REG_OVF,
+	output             REG_OVF,
 	output reg         REG_ZERO,
 	
 	//SYSRAM
@@ -260,14 +260,13 @@ module MADAM_AG
 		end
 	end 
 	
+	assign REG_OVF = DMA_STACK_IN[23] & DMA_STACK_WE;
 	always @(posedge CLK or negedge RST_N) begin
 		if (!RST_N) begin
-			REG_OVF <= 0;
 			REG_ZERO <= 0;
 		end
 		else if (EN && CE_R) begin
 			if (DMA_STACK_WE) begin
-				REG_OVF <= DMA_STACK_IN[23];
 				REG_ZERO <= ~|DMA_STACK_IN;
 			end
 		end
