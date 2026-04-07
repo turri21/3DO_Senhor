@@ -1,3 +1,8 @@
+-=(3DO_Senhor notes)=-
+
+Tested: Working Video 720p, 1080p & Sound.
+
+___
 # 3DO for MiSTer
 
 ## Hardware Requirements
