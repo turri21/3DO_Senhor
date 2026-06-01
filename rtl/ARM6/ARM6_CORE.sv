@@ -70,6 +70,13 @@ module ARM6_CORE
 	bit          ALU_C;
 	bit          ALU_V;
 	
+	bit          RES_SYNC;
+	always @(posedge CLK) begin
+		if (EN) begin
+			RES_SYNC <= ~nRESET;
+		end
+	end
+	
 	//Register bank
 	bit  [ 3: 0] RB_MODE;
 	
@@ -107,7 +114,6 @@ module ARM6_CORE
 		.PC_WE(PC_WE),
 		.PC_Q(PC_Q)
 	);
-	assign RB_WD = ALU_R;
 	
 	
 	//Fetch
@@ -115,12 +121,6 @@ module ARM6_CORE
 	bit  EX_STATE0;
 	always @(posedge CLK or negedge RST_N) begin
 		if (!RST_N) begin
-			DIN <= '0;
-			BA <= '0;
-			FIQ <= 0;
-			IRQ <= 0;
-		end
-		else if (!nRESET) begin
 			DIN <= '0;
 			BA <= '0;
 			FIQ <= 0;
@@ -140,8 +140,9 @@ module ARM6_CORE
 			IF_IC <= '0;
 			DI_IC <= '0;
 		end
-		else if (!nRESET) begin
-			
+		else if (RES_SYNC) begin
+			IF_IC <= 32'hE1A00000;
+			DI_IC <= 32'hE1A00000;
 		end
 		else if (EN && CE_F) begin
 			if (!DECI.STALL) begin
@@ -158,20 +159,19 @@ module ARM6_CORE
 	end 
 	
 	wire [ 4: 0] STATE_NEXT = !DECI.NST ? STATE : !DECI.LST ? STATE + 5'd1 : 5'd0;
-	bit FIQ_PEND,IRQ_PEND;
+	bit RESET_PEND,FIQ_PEND,IRQ_PEND;
 	always @(posedge CLK or negedge RST_N) begin
 		if (!RST_N) begin
 			STATE <= '0;
 			EX_IC <= '0;
+			RESET_PEND <= 1;
 			FIQ_PEND <= 0;
 			IRQ_PEND <= 0;
 		end
-		else if (!nRESET) begin
+		else if (RES_SYNC) begin
 			STATE <= '0;
-			EX_IC <= '0;
-		end
-		else if (EN && CE_R) begin
-		
+			EX_IC <= 32'hEF000000;
+			RESET_PEND <= 1;
 		end
 		else if (EN && CE_F) begin
 			STATE <= STATE_NEXT;
@@ -188,6 +188,7 @@ module ARM6_CORE
 					IRQ_PEND <= 1;
 				end
 				else begin
+					RESET_PEND <= 0;
 					FIQ_PEND <= 0;
 					IRQ_PEND <= 0;
 				end
@@ -266,11 +267,6 @@ module ARM6_CORE
 			ALU_B <= '0;
 			ALU_SHC <= 0;
 		end
-		else if (!nRESET) begin
-			ALU_A <= '0;
-			ALU_B <= '0;
-			ALU_SHC <= 0;
-		end
 		else if (EN && CE_R) begin
 			if (DECI.DPCTL.ALULTCH) begin
 				ALU_A <= DECI.DPCTL.SA ? PSR_RES : RB_RAQ; 
@@ -313,9 +309,6 @@ module ARM6_CORE
 		if (!RST_N) begin
 			SHIFT_LATCH <= '0;
 		end
-		else if (!nRESET) begin
-			SHIFT_LATCH <= '0;
-		end
 		else if (EN && CE_F) begin
 			if (DECI.DPCTL.SHLTCH) begin
 				SHIFT_LATCH <= ALU_B[7:0]; 
@@ -325,10 +318,6 @@ module ARM6_CORE
 	
 	always @(posedge CLK or negedge RST_N) begin
 		if (!RST_N) begin
-			MUL_SHIFT <= '0;
-			MUL_STEP <= '0;
-		end
-		else if (!nRESET) begin
 			MUL_SHIFT <= '0;
 			MUL_STEP <= '0;
 		end
@@ -350,9 +339,6 @@ module ARM6_CORE
 		if (!RST_N) begin
 			BLOCK_RD <= '0;
 		end
-		else if (!nRESET) begin
-			BLOCK_RD <= '0;
-		end
 		else if (EN && CE_F) begin
 			if (DECI.RCTL.BINI)
 				BLOCK_RD <= RegFromList(EX_IC[15:0], 4'd0);
@@ -366,6 +352,7 @@ module ARM6_CORE
 	assign BLOCK_LAST = LastInList(EX_IC[15:0], BLOCK_RD + 4'd0);
 	
 	assign RB_WN = DECI.RCTL.WN;
+	assign RB_WD = ALU_R;
 	assign RB_WE = DECI.RCTL.RWE;
 	
 	assign PC_D = AREG_NEXT;
@@ -411,10 +398,6 @@ module ARM6_CORE
 			CPSR <= 32'h000000D3;
 			SPSR <= '{6{'0}};
 		end
-		else if (!nRESET) begin
-			CPSR <= 32'h000000D3;
-			SPSR <= '{6{'0}};
-		end
 		else if (EN && CE_F) begin
 			CPSR <= CPSR_NEXT;
 			case (DECI.PSRCTL)
@@ -431,7 +414,7 @@ module ARM6_CORE
 				PSRC_INT: 
 					if (FIQ_PEND) begin SPSR[1] <= CPSR; end
 					else if (IRQ_PEND) begin SPSR[2] <= CPSR; end
-					else SPSR[3] <= CPSR;//for SWI
+					else SPSR[3] <= CPSR;//for Reset/SWI
 				
 				default:;
 			endcase
@@ -469,19 +452,13 @@ module ARM6_CORE
 			AREG <= '0;
 			MCTL_ADR_PREV <= ADR_INC;
 		end
-		else if (!nRESET) begin
-			AREG <= '0;
-			MCTL_ADR_PREV <= ADR_INC;
-		end
-		else if (EN && CE_R) begin
-		end
 		else if (EN && CE_F) begin
 			case (DECI.MCTL.ADR)
 				ADR_INC: AREG <= AREG_NEXT;
 				ADR_PC:  AREG <= PC_Q;
 				ADR_ALU: AREG <= ALU_R;
 				ADR_ALUI:AREG <= ALU_R + 32'd4;
-				ADR_VEC: AREG <= FIQ_PEND ? 32'h0000001C : IRQ_PEND ? 32'h00000018 : 32'h00000008;//for SWI
+				ADR_VEC: AREG <= RESET_PEND ? 32'h00000000 : FIQ_PEND ? 32'h0000001C : IRQ_PEND ? 32'h00000018 : 32'h00000008;//for SWI
 				default: AREG <= '0;
 			endcase
 			MCTL_ADR_PREV <= DECI.MCTL.ADR;
