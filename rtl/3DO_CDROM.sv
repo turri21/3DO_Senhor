@@ -22,13 +22,16 @@ module P3DO_CDROM
 	input              CDD_DTEN,
 	input              CDD_DIEN,
 	
-	input              DISCIN,
 	inout      [35: 0] EXT_BUS,
 	
+	input              TRAY_OPEN
 	
+`ifdef DEBUG
+	                  ,
 	output reg [15: 0] DBG_CRC,
 	output reg [ 7: 0] DBG_CMD[4],
 	output reg [11: 0] DBG_WAIT_CNT
+`endif
 );
 
 	parameter bit [ 7: 0] ID_STAT[12] = '{8'h83,8'h00,8'h10,8'h00,8'h01,8'h00,8'h00,8'h00,8'h00,8'h00,8'h00,8'h00};
@@ -77,9 +80,16 @@ module P3DO_CDROM
 	bit          CDD_BLOCK_READY;
 	bit          CDD_IS_LOADED;
 	always @(posedge CLK) begin
+		bit         RST_N_OLD;
 		bit         CDD_DTEN_OLD,CDD_DIEN_OLD;
 		
-		CDD_IS_LOADED <= 0;
+		RST_N_OLD <= RST_N;
+		CDD_DTEN_OLD <= CDD_DTEN;
+		CDD_DIEN_OLD <= CDD_DIEN;
+		if ((!RST_N && RST_N_OLD) || (CDD_DIEN && !CDD_DIEN_OLD)) begin
+			CDD_IS_LOADED <= 0;
+		end
+		
 		CDD_BLOCK_READY <= 0;
 		if (CDD_WR) begin
 			CDD_DATA_ADDR <= CDD_DATA_ADDR + 11'd1;
@@ -87,14 +97,14 @@ module P3DO_CDROM
 				CDD_BLOCK_READY <= 1;
 			end
 			if (CDD_DTEN && CDD_DATA_ADDR == 11'h400) begin
+`ifdef DEBUG
 				DBG_CRC <= CDD_DATA;
+`endif
 				CDD_DATA_ADDR <= '0;
 			end
 			if (CDD_DIEN && CDD_DATA_ADDR == 11'h3FF) CDD_IS_LOADED <= 1;
 		end
 		
-		CDD_DTEN_OLD <= CDD_DTEN;
-		CDD_DIEN_OLD <= CDD_DIEN;
 		if ((CDD_DTEN && !CDD_DTEN_OLD) || (CDD_DIEN && !CDD_DIEN_OLD)) begin
 			CDD_DATA_ADDR <= '0;
 		end
@@ -160,15 +170,17 @@ module P3DO_CDROM
 		bit         CDHRD_N_OLD,CDHWR_N_OLD;
 		bit [ 2: 0] CMD_DATA_CNT,COM_DATA_LEN;
 		bit [ 3: 0] COM_STAT_CNT,COM_STAT_LEN;
+		bit [15: 0] CMD_EXEC_WAIT;
 		bit [10: 0] DATA_CNT;
 		bit [15: 0] FRAME_CNT,NEXT_FRAME_CNT;
 		bit [ 7: 0] ST_DELAY_CNT;
 		bit         CMD_REC;
+		bit         CDD_IS_LOADED_OLD,TRAY_OPEN_OLD;
 		
 		if (!RST_N) begin
 			IO_ST <= IO_IDLE;
 			COMMAND <= '{8{'0}};
-			STATUS <= 8'h01;
+			STATUS <= 8'h81;
 			ERROR <= ERROR_NO_ERR;
 			
 			CMD_DATA_CNT <= '0;
@@ -178,16 +190,19 @@ module P3DO_CDROM
 			DT_EN <= 0;
 			CDMDCHG <= 0;
 			ST_DELAY_CNT <= '1;
+			{CDD_IS_LOADED_OLD,TRAY_OPEN_OLD} <= '0;
 			
 			CMD_ST <= CMD_IDLE;
 			CMD_REC <= 0;
 			
+`ifdef DEBUG
 			DBG_CMD <= '{4{'0}};
+`endif
 		end
 		else if (!CDRST_N) begin
 			IO_ST <= IO_IDLE;
 			COMMAND <= '{8{'0}};
-			STATUS <= 8'h01;
+//			STATUS <= CDD_IS_LOADED ? 8'hC1 : 8'h81;
 			ERROR <= ERROR_NO_ERR;
 			
 			CMD_DATA_CNT <= '0;
@@ -196,15 +211,15 @@ module P3DO_CDROM
 			ST_EN <= 0;
 			DT_EN <= 0;
 			CDMDCHG <= 0;
+			{CDD_IS_LOADED_OLD,TRAY_OPEN_OLD} <= '0;
 			
 			CMD_ST <= CMD_IDLE;
 			CMD_REC <= 0;
 		end
 		else begin
+`ifdef DEBUG
 			if (DT_EN && !ST_EN && CE) DBG_WAIT_CNT <= DBG_WAIT_CNT + 1'd1;
-			
-			STATUS[7] <= DISCIN;
-			STATUS[6] <= DISCIN;
+`endif
 			
 			NEXT_FRAME_CNT = FRAME_CNT + 16'd1;
 			
@@ -261,10 +276,12 @@ module P3DO_CDROM
 							8'h8D: COM_STAT_LEN <= 4'd7;
 							default: COM_STAT_LEN <= 4'd1;
 						endcase
+`ifdef DEBUG
 						DBG_CMD[0] <= COMMAND[0];
 						DBG_CMD[1] <= DBG_CMD[0];
 						DBG_CMD[2] <= DBG_CMD[1];
 						DBG_CMD[3] <= DBG_CMD[2];
+`endif
 						
 					end else begin
 						COMMAND[CMD_DATA_CNT] <= CDDI;
@@ -298,17 +315,25 @@ module P3DO_CDROM
 					end
 					IO_ST <= IO_IDLE;
 					
+`ifdef DEBUG
 					DBG_WAIT_CNT <= '0;
+`endif
 				end
 				
 			endcase
 			
+			if (CMD_EXEC_WAIT && CE) CMD_EXEC_WAIT <= CMD_EXEC_WAIT - 16'd1;
 			case (CMD_ST)
 				CMD_IDLE: if (CMD_REC && CE) begin
 					case (CMD_CODE)
 						8'h02: begin	//Spin up
 							if (STATUS[7] && STATUS[6]) begin STATUS[5] <= 1; STATUS[0] <= 1; ERROR <= ERROR_NO_ERR; end
 							else begin STATUS[4] <= 1; STATUS[0] <= 0; ERROR <= ERROR_DISC_OUT; end
+							CMD_ST <= CMD_EXEC;
+						end
+						
+						8'h06: begin	//Eject
+							STATUS <= 8'h01; ERROR <= ERROR_NO_ERR;
 							CMD_ST <= CMD_EXEC;
 						end
 						
@@ -337,6 +362,7 @@ module P3DO_CDROM
 						end
 						
 						8'h83: begin	//Read ID
+							CMD_EXEC_WAIT <= 16'd4120;
 							CMD_ST <= CMD_EXEC;
 						end
 						
@@ -367,12 +393,25 @@ module P3DO_CDROM
 					STAT_FIFO_WPOS <= '0;
 				end
 				
-				CMD_EXEC: if (CE) begin
+				CMD_EXEC: if (!CMD_EXEC_WAIT && CE) begin
 					case (COMMAND[0])
 						8'h02: begin	//Spin up
 							STAT_FIFO_WPOS <= STAT_FIFO_WPOS + 4'd1;
 							if (STAT_FIFO_WPOS == 4'd0) begin
 								STAT_DATA[0] <= 8'h02;
+							end else if (STAT_FIFO_WPOS == 4'd1) begin
+								STAT_DATA[1] <= STATUS;
+								ERROR <= ERROR_NO_ERR;
+								ST_EN <= 1;
+								CMD_REC <= 0;
+								CMD_ST <= CMD_IDLE;
+							end
+						end
+						
+						8'h06: begin	//Eject
+							STAT_FIFO_WPOS <= STAT_FIFO_WPOS + 4'd1;
+							if (STAT_FIFO_WPOS == 4'd0) begin
+								STAT_DATA[0] <= 8'h06;
 							end else if (STAT_FIFO_WPOS == 4'd1) begin
 								STAT_DATA[1] <= STATUS;
 								ERROR <= ERROR_NO_ERR;
@@ -537,10 +576,16 @@ module P3DO_CDROM
 				end
 			end
 			
-			if (CDD_IS_LOADED) begin
+			CDD_IS_LOADED_OLD <= CDD_IS_LOADED;
+			if (CDD_IS_LOADED && !CDD_IS_LOADED_OLD) begin
 				CDMDCHG <= 1;
+				STATUS <= 8'hC1;
 			end
-			
+			TRAY_OPEN_OLD <= TRAY_OPEN;
+			if (TRAY_OPEN && !TRAY_OPEN_OLD) begin
+				CDMDCHG <= 1;
+				STATUS <= 8'h01;
+			end
 		end
 	end
 	

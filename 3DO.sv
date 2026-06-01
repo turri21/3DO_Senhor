@@ -284,7 +284,7 @@ module emu
 	// 0         1         2         3          4         5         6   
 	// 01234567890123456789012345678901 23456789012345678901234567890123
 	// 0123456789ABCDEFGHIJKLMNOPQRSTUV 0123456789ABCDEFGHIJKLMNOPQRSTUV
-	// XXXXXXXX    XXXXX                XXXXXX                          
+	// X           XXXXX                XXXXXX                          
 	
 	`include "build_id.v"
 	localparam CONF_STR = {
@@ -769,8 +769,9 @@ module emu
 		.CDD_DTEN(cdd_data_download),
 		.CDD_DIEN(cdd_info_download),
 	
-		.DISCIN(1'b1/*status[15]*/),
-		.EXT_BUS(EXT_BUS)
+		.EXT_BUS(EXT_BUS),
+		
+		.TRAY_OPEN(1'b0)
 	);
 	
 	
@@ -1171,7 +1172,7 @@ module emu
 	reg          forced_scandoubler_sync;
 	reg  [ 2: 0] scale_sync;
 	always @(posedge clk_vid) begin
-		forced_scandoubler_sync <= forced_scandoubler;
+		forced_scandoubler_sync <= '0;//forced_scandoubler;
 		scale_sync <= scale;
 	end
 	wire [ 2: 0] sl = scale_sync;
