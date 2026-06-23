@@ -277,6 +277,7 @@ module emu
 		end
 	end 
 
+	
 	///////////////////////////////////////////////////
 	
 	// Status Bit Map:
@@ -284,7 +285,7 @@ module emu
 	// 0         1         2         3          4         5         6   
 	// 01234567890123456789012345678901 23456789012345678901234567890123
 	// 0123456789ABCDEFGHIJKLMNOPQRSTUV 0123456789ABCDEFGHIJKLMNOPQRSTUV
-	// X           XXXXX                XXXXXX                          
+	// X     XX    XXXXXXX              XXXXXXXX                        
 	
 	`include "build_id.v"
 	localparam CONF_STR = {
@@ -303,27 +304,27 @@ module emu
 		"P1,Audio & Video;",
 //		"P1O45,Aspect Ratio,Original,Full Screen,[ARC1],[ARC2];",
 		"P1O67,Scale,Normal,V-Integer,Narrower HV-Integer,Wider HV-Integer;",
-//		"P1O13,Scandoubler Fx,None,CRT 25%,CRT 50%,CRT 75%;",
 	
 		"P2,Input;",
-		"P2O[34:32],Pad,No,1,2,3,4;",
-		"D1P2O[35],Flightstick,No,Yes;",
-		"D2P2O[36],Mouse,No,Yes;",
+		"P2O[34:32],Pad,1,2,3,4,Off;",
+		"D1P2O[35],Flightstick,Off,On;",
+		"D2P2O[36],Mouse,Off,On;",
 		"P2-;",
-
-//		"P3,Hardware;",
+		"P2O[38:37],Arcade control,Off,Trackball;",/*,LightGun*/
+		"P2O[39],Arcade service,Off,On;",
+		"P2-;",
 		
 		"-;",
 		"R0,Reset;",
-		"J1,A,B,C,P,X,R,L,T;",
+		"J1,A,B,C,P,X,R,L,T/Start,Coin;",
 		"V,v",`BUILD_DATE
 	};
 
 	wire [63:0] status;
-	wire [15:0] status_menumask = {13'd0,mouse_mask,~stick_mask,~bk_ena};
+	wire [15:0] status_menumask = {13'd0,mouse_mask,stick_mask,~bk_ena};
 	
 	wire  [1:0] buttons;
-	wire [12:0] joystick_0,joystick_1,joystick_2,joystick_3,joystick_4;
+	wire [15:0] joystick_0,joystick_1,joystick_2,joystick_3,joystick_4;
 	wire  [7:0] joy0_x0,joy0_y0,joy0_x1,joy0_y1,joy1_x0,joy1_y0,joy1_x1,joy1_y1;
 	wire        ioctl_download;
 	wire        ioctl_wr;
@@ -775,8 +776,10 @@ module emu
 	);
 	
 	
-	wire stick_mask = ~(status[34:32] <= 3'd1);
-	wire mouse_mask = ~(status[34:32] <= 3'd2);
+	wire [2:0] pad_sel = status[34:32] >= 3'd4 ? 3'd0 : status[34:32] + 3'd1;
+	wire [1:0] arcade_sel = status[38:37];
+	wire stick_mask = ~(pad_sel <= 3'd1 && !arcade_sel);
+	wire mouse_mask = ~(pad_sel <= 3'd2 && !arcade_sel);
 	
 	HPS2PAD pad
 	(
@@ -792,14 +795,16 @@ module emu
 		.EXPBDIN(1'b1),
 		.EXPBDOUT(),
 	
-		.PAD_SEL(status[34:32]),
+		.PAD_SEL(pad_sel),
+		.ARCADE_SEL(arcade_sel),
 		.STICK_EN(status[35]&~stick_mask),
 		.MOUSE_EN(status[36]&~mouse_mask),
+		.ARCADE_SERVICE(status[39]),
 	
-		.joystick_0(joystick_0),
-		.joystick_1(joystick_1),
-		.joystick_2(joystick_2),
-		.joystick_3(joystick_3),
+		.joystick_0(joystick_0[12:0]),
+		.joystick_1(joystick_1[12:0]),
+		.joystick_2(joystick_2[12:0]),
+		.joystick_3(joystick_3[12:0]),
 		.joy0_x0(joy0_x0),
 		.joy0_y0(joy0_y0),
 		.joy0_x1(joy0_x1),
@@ -1172,7 +1177,7 @@ module emu
 	reg          forced_scandoubler_sync;
 	reg  [ 2: 0] scale_sync;
 	always @(posedge clk_vid) begin
-		forced_scandoubler_sync <= '0;//forced_scandoubler;
+		forced_scandoubler_sync <= 0;//forced_scandoubler;
 		scale_sync <= scale;
 	end
 	wire [ 2: 0] sl = scale_sync;

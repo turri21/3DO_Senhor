@@ -11,8 +11,10 @@ module HPS2PAD (
 	output reg         EXPBDOUT,
 	
 	input      [ 2: 0] PAD_SEL,
+	input      [ 1: 0] ARCADE_SEL,
 	input              STICK_EN,
 	input              MOUSE_EN,
+	input              ARCADE_SERVICE,
 	
 	input      [12: 0] joystick_0,
 	input      [12: 0] joystick_1,
@@ -158,22 +160,37 @@ module HPS2PAD (
 		mouse_x[9:0]
 	};
 	
+	//arcade control
+	wire [31:0] arcade_silli = {8'hC0, 8'h00, {1'b0, 1'b0, joystick_0[12], joystick_1[12], 1'b0, joystick_1[11], joystick_0[11], ARCADE_SERVICE}, 8'h00};
+	wire [31:0] arcade_tb = {
+		8'h49,
+		1'b0,
+		1'b0,
+		1'b0,
+		1'b0,
+		mouse_y[9:0],
+		mouse_x[9:0]
+	};
+	
 	bit [255: 0] IN_DATA;
 	always_comb begin
-		case ({MOUSE_EN,STICK_EN,PAD_SEL})
-			5'b0_0_001: IN_DATA = {joy0_data,                                                     {256      -16{1'b1}}};
-			5'b0_0_010: IN_DATA = {joy0_data,joy1_data,                                           {256      -32{1'b1}}};
-			5'b0_0_011: IN_DATA = {joy0_data,joy1_data,joy2_data,                                 {256      -48{1'b1}}};
-			5'b0_0_100: IN_DATA = {joy0_data,joy1_data,joy2_data,joy3_data,                       {256      -64{1'b1}}};
-			5'b0_1_000: IN_DATA = {                                        stick0_data,           {256-   72- 0{1'b1}}};
-			5'b0_1_001: IN_DATA = {joy0_data,                              stick1_data,           {256-   72-16{1'b1}}};
-			5'b1_0_000: IN_DATA = {                                                    mouse_data,{256-32-    0{1'b1}}};
-			5'b1_0_001: IN_DATA = {joy0_data,                                          mouse_data,{256-32-   16{1'b1}}};
-			5'b1_0_010: IN_DATA = {joy0_data,joy1_data,                                mouse_data,{256-32-   32{1'b1}}};
-			5'b1_1_000: IN_DATA = {                                        stick0_data,mouse_data,{256-32-72- 0{1'b1}}};
-			5'b1_1_001: IN_DATA = {joy0_data,                              stick1_data,mouse_data,{256-32-72-16{1'b1}}};
-			default:    IN_DATA = {                                                               {256      - 0{1'b1}}};
-		endcase
+		if (ARCADE_SEL)
+			IN_DATA = {arcade_tb,arcade_silli,{256-32-32{1'b1}}};
+		else
+			case ({MOUSE_EN,STICK_EN,PAD_SEL})
+				5'b0_0_001: IN_DATA = {joy0_data,                                                     {256-16      {1'b1}}};
+				5'b0_0_010: IN_DATA = {joy0_data,joy1_data,                                           {256-32      {1'b1}}};
+				5'b0_0_011: IN_DATA = {joy0_data,joy1_data,joy2_data,                                 {256-48      {1'b1}}};
+				5'b0_0_100: IN_DATA = {joy0_data,joy1_data,joy2_data,joy3_data,                       {256-64      {1'b1}}};
+				5'b0_1_000: IN_DATA = {                                        stick0_data,           {256-00-72   {1'b1}}};
+				5'b0_1_001: IN_DATA = {joy0_data,                              stick1_data,           {256-16-72   {1'b1}}};
+				5'b1_0_000: IN_DATA = {                                                    mouse_data,{256-00-   32{1'b1}}};
+				5'b1_0_001: IN_DATA = {joy0_data,                                          mouse_data,{256-16-   32{1'b1}}};
+				5'b1_0_010: IN_DATA = {joy0_data,joy1_data,                                mouse_data,{256-32-   32{1'b1}}};
+				5'b1_1_000: IN_DATA = {                                        stick0_data,mouse_data,{256-00-72-32{1'b1}}};
+				5'b1_1_001: IN_DATA = {joy0_data,                              stick1_data,mouse_data,{256-16-72-32{1'b1}}};
+				default:    IN_DATA = {                                                               {256         {1'b1}}};
+			endcase
 	end
 
 	bit          LATCH;
