@@ -37,7 +37,7 @@ module sys_top
 	output [23:0] HDMI_TX_D,
 	output        HDMI_TX_HS,
 	output        HDMI_TX_VS,
-	
+
 	input         HDMI_TX_INT,
 	//////////// SDR ///////////
 	output [12:0] SDRAM_A,
@@ -1576,7 +1576,14 @@ assign SDCD_SPDIF = (mcp_en & ~spdif) ? 1'b0 : 1'bZ;
 	assign AUDIO_L     = av_dis ? 1'bZ : (SW[0] | mcp_en) ? HDMI_SCLK  : analog_l;
 `endif
 
-assign HDMI_MCLK = clk_audio;
+// Senhorize v1.2: gate MCLK on a startup counter so the ADV7513
+// sees a clean clock absence until the audio PLL has settled.
+// Counter bit 16 goes high ~1.3 ms after power-on at 50 MHz.
+reg [16:0] audio_pll_lock_cnt = 0;
+wire audio_pll_locked = audio_pll_lock_cnt[16];
+always @(posedge FPGA_CLK3_50)
+	if (!audio_pll_lock_cnt[16]) audio_pll_lock_cnt <= audio_pll_lock_cnt + 1'd1;
+
 wire clk_audio;
 
 pll_audio pll_audio
@@ -1585,6 +1592,7 @@ pll_audio pll_audio
 	.rst(0),
 	.outclk_0(clk_audio)
 );
+assign HDMI_MCLK = audio_pll_locked ? clk_audio : 1'b0;
 
 wire spdif;
 audio_out audio_out
