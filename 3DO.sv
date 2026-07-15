@@ -24,7 +24,7 @@ module emu
 	input         RESET,
 
 	//Must be passed to hps_io module
-	inout  [48:0] HPS_BUS,
+	inout  [45:0] HPS_BUS,
 
 	//Base video clock. Usually equals to CLK_SYS.
 	output        CLK_VIDEO,
@@ -285,7 +285,7 @@ module emu
 	// 0         1         2         3          4         5         6   
 	// 01234567890123456789012345678901 23456789012345678901234567890123
 	// 0123456789ABCDEFGHIJKLMNOPQRSTUV 0123456789ABCDEFGHIJKLMNOPQRSTUV
-	// X     XX    XXXXXXXX             XXXXXXXX                        
+	// X     XXXX  XXXXXXXX             XXXXXXXX                        
 	
 	`include "build_id.v"
 	localparam CONF_STR = {
@@ -302,8 +302,8 @@ module emu
 		
 		"-;",
 		"P1,Audio & Video;",
-//		"P1O45,Aspect Ratio,Original,Full Screen,[ARC1],[ARC2];",
 		"P1O67,Scale,Normal,V-Integer,Narrower HV-Integer,Wider HV-Integer;",
+		"P1O89,Vertical Crop,Disabled,216p(5x),224p;",
 	
 		"P2,Input;",
 		"P2O[34:32],Pad,1,2,3,4,Off;",
@@ -1224,28 +1224,32 @@ module emu
 		.VBlank(~VBL_N)
 	);
 	
-	reg [ 1: 0] ar;
-	reg         vcrop_en;
+	reg [ 1: 0] vcrop_mode;
 	reg [ 3: 0] vcopt;
 	reg [ 1: 0] vf_scale;
 	reg         en216p;
 	reg [ 4: 0] voff;
+	reg [ 9: 0] crop_size;
 	always @(posedge CLK_VIDEO) begin
-		ar <= status[5:4];
-		vcrop_en <= 0;//status[39];
-		vcopt <= '0;//status[38:35];
+		vcrop_mode <= status[9:8];
+		vcopt <= '0;
 		vf_scale <= status[7:6];
 		en216p <= ((HDMI_WIDTH == 1920) && (HDMI_HEIGHT == 1080) && !forced_scandoubler_sync && !scale_sync);
 		voff <= (vcopt < 6) ? {vcopt,1'b0} : ({vcopt,1'b0} - 5'd24);
+		case (vcrop_mode)
+			  2'b01: crop_size <= 10'd216;  // 216p
+			  2'b10: crop_size <= 10'd224;  // 224p
+			  default: crop_size <= 10'd0;  // Disabled
+		 endcase
 	end
-
+	
 	video_freak video_freak
 	(
 		.*,
 		.VGA_DE_IN(vga_de),
-		.ARX(12'd64),
-		.ARY(12'd49),
-		.CROP_SIZE((en216p & vcrop_en) ? 10'd216 : 10'd0),
+		.ARX(12'd4),
+		.ARY(12'd3),
+		.CROP_SIZE((en216p && vcrop_mode == 2'd1) || vcrop_mode >= 2'd2 ? crop_size : 10'd0),
 		.CROP_OFF(voff),
 		.SCALE(vf_scale)
 	);
